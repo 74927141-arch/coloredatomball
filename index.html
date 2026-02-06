@@ -186,6 +186,292 @@ goal.position.set(x, y+4, z+6);
 function loadLevel(lvl){lvl===1?buildLevel1():buildLevel2();}
 
 // ===== CONTROLS =====
+
+// --- MOBILE DETECTION ---
+const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+let touchForward=false, touchBack=false, touchLeft=false, touchRight=false;
+let lastTouchX=null;
+
+const keys={};
+let yaw=0,vy=0,isGrounded=false;
+const gravity=-0.025,jump=0.5;
+
+addEventListener('keydown',e=>keys[e.key.toLowerCase()]=true);
+addEventListener('keyup',e=>keys[e.key.toLowerCase()]=false);
+// reduced mouse sensitivity
+addEventListener('mousemove',e=>{ if(!isMobile) yaw-=e.movementX*0.015; });
+
+// --- MOBILE TOUCH LOOK ---
+addEventListener('touchmove',e=>{
+  if(!isMobile) return;
+  const t=e.touches[0];
+  if(lastTouchX!==null){ yaw -= (t.clientX-lastTouchX)*0.01; }
+  lastTouchX=t.clientX;
+},{passive:true});
+
+addEventListener('touchend',()=>lastTouchX=null);
+
+
+// ===== UI =====
+lvl1.onclick=()=>startGame(1);
+lvl2.onclick=()=>startGame(2);
+resetBtn.onclick=()=>resetPlayer();
+nextBtn.onclick=()=>{currentLevel=currentLevel===1?2:1;startGame(currentLevel);};
+again.onclick=()=>{endScreen.style.display='none';startScreen.style.display='flex';document.body.style.cursor='auto';};
+
+let startTime=0;
+function startGame(lvl){
+  document.body.style.cursor='none';
+  startTime=performance.now();
+  currentLevel=lvl;
+  lives=3;
+  gameStarted=true;
+  startScreen.style.display='none';
+  resetPlayer();
+  loadLevel(lvl);
+}
+
+function resetPlayer(){player.position.set(startBlock.position.x, startBlock.position.y+2, startBlock.position.z);vy=0;}
+
+function loseLife(){lives--;resetPlayer();if(lives<=0){gameStarted=false;startScreen.style.display='flex';document.body.style.cursor='auto';}}
+
+function endGame(){
+  gameStarted=false;
+  const t=((performance.now()-startTime)/1000).toFixed(2);
+  stats.innerHTML=`<p>Level: ${currentLevel}</p><p>Time: ${t}s</p><p>Lives left: ${lives}</p>`;
+  endScreen.style.display='flex';
+}
+
+// ===== LOOP =====
+// --- MOBILE BUTTONS ---
+if(isMobile){
+  const controls=document.createElement('div');
+  controls.style.position='fixed';
+  controls.style.bottom='20px';
+  controls.style.left='20px';
+  controls.style.zIndex='200';
+  controls.innerHTML=`
+    <button id="mF">↑</button>
+    <button id="mB">↓</button>
+    <button id="mL">←</button>
+    <button id="mR">→</button>
+  `;
+  document.body.appendChild(controls);
+
+  const map=(id,prop)=>{
+    const b=document.getElementById(id);
+    b.ontouchstart=()=>{window[prop]=true;};
+    b.ontouchend=()=>{window[prop]=false;};
+  };
+  map('mF','touchForward');
+  map('mB','touchBack');
+  map('mL','touchLeft');
+  map('mR','touchRight');
+}
+
+function animate(){
+  requestAnimationFrame(animate);
+  if(!gameStarted){renderer.render(scene,camera);return;}
+
+  const dir=new THREE.Vector3(Math.sin(yaw),0,Math.cos(yaw));
+  // forward / backward
+  if(keys.w || touchForward) player.position.addScaledVector(dir,0.14);
+  if(keys.s || touchBack) player.position.addScaledVector(dir,-0.14);
+
+  // strafe left / right (A / D) — INVERTED
+  const right = new THREE.Vector3(dir.z, 0, -dir.x);
+  if(keys.a || touchLeft) player.position.addScaledVector(right,0.14);
+  if(keys.d || touchRight) player.position.addScaledVector(right,-0.14);
+
+  vy+=gravity;
+  player.position.y+=vy;
+  isGrounded=false;
+
+  blocks.forEach(b=>{
+    const dx=Math.abs(player.position.x-b.position.x);
+    const dz=Math.abs(player.position.z-b.position.z);
+    const top=b.position.y+b.userData.halfH;
+    if(dx<b.userData.half+radius && dz<b.userData.half+radius){
+      if(vy<=0 && player.position.y-radius<=top && player.position.y>top){
+        player.position.y=top+radius;vy=0;isGrounded=true;
+      }
+    }
+  });
+
+  if(keys[' ']&&isGrounded) vy=jump;
+  if(player.position.y<-10) loseLife();
+
+  dynamicBlocks.forEach(d=>{
+    const nx=d.baseX+Math.sin(performance.now()*0.002)*3;
+    const dx=nx-d.mesh.position.x;
+    d.mesh.position.x=nx;
+    if(isGrounded) player.position.x+=dx;
+  });
+
+  if(goal.visible && player.position.distanceTo(goal.position)<1.8) endGame();
+
+  camera.position.set(player.position.x-10*Math.sin(yaw),player.position.y+4,player.position.z-10*Math.cos(yaw));
+  camera.lookAt(player.position);
+
+  renderer.render(scene,camera);
+}
+animate();
+</script>
+</body>
+</html>
+
+<div id="ui">
+  WASD move · Space jump · Mouse look<br/>
+  <button id="resetBtn">Restart</button>
+  <button id="nextBtn">Next Level</button>
+</div>
+
+<div id="endScreen">
+  <h1 class="title">LEVEL COMPLETED</h1>
+  <div id="stats"></div>
+  <button id="again">Play Again</button>
+</div>
+
+<script type="module">
+import * as THREE from "three";
+
+// ===== BASIC SETUP =====
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x05060a);
+
+const camera = new THREE.PerspectiveCamera(60, innerWidth/innerHeight, 0.1, 1000);
+const renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(innerWidth, innerHeight);
+document.body.appendChild(renderer.domElement);
+
+scene.add(new THREE.AmbientLight(0x6666ff,0.6));
+const sun=new THREE.DirectionalLight(0xffffff,1.2);
+sun.position.set(30,60,20);
+scene.add(sun);
+
+// ===== DATA =====
+const colorsLevel1=[0x4dfcff,0xff5fa2,0xffc857,0x7cff6b,0xb86cff];
+let lives=3;
+let currentLevel=1;
+let gameStarted=false;
+const blocks=[];
+const dynamicBlocks=[];
+
+// ===== FLOOR =====
+const floor=new THREE.Mesh(
+  new THREE.BoxGeometry(80,2,80),
+  new THREE.MeshStandardMaterial({color:0x111a33})
+);
+floor.position.y=-1;
+floor.userData={half:40,halfH:1};
+scene.add(floor);
+
+// ===== START BLOCK =====
+const startBlock=new THREE.Mesh(
+  new THREE.BoxGeometry(4,2,4),
+  new THREE.MeshStandardMaterial({color:0xff5fa2,emissive:0xff5fa2})
+);
+startBlock.userData={half:2,halfH:1};
+scene.add(startBlock);
+
+// ===== GOAL =====
+const goal=new THREE.Mesh(
+  new THREE.CylinderGeometry(1.2,1.2,3,24),
+  new THREE.MeshStandardMaterial({color:0x00ff9c,emissive:0x00ff9c})
+);
+goal.visible=false;
+scene.add(goal);
+
+// ===== PLAYER =====
+const radius=0.8;
+const player=new THREE.Mesh(
+  new THREE.SphereGeometry(radius,32,32),
+  new THREE.MeshStandardMaterial({color:0x4dfcff,emissive:0x1aa3a3})
+);
+scene.add(player);
+
+// ===== HELPERS =====
+function createBlock(x,y,z,size,color){
+  const h=2;
+  const b=new THREE.Mesh(
+    new THREE.BoxGeometry(size,h,size),
+    new THREE.MeshStandardMaterial({color,emissive:color})
+  );
+  b.position.set(x,y,z);
+  b.userData={half:size/2,halfH:h/2};
+  scene.add(b);
+  blocks.push(b);
+  return b;
+}
+
+function clearLevel(){
+  blocks.forEach(b=>scene.remove(b));
+  dynamicBlocks.length=0;
+  blocks.length=0;
+  scene.add(floor);
+  scene.add(startBlock);
+  blocks.push(floor,startBlock);
+}
+
+// ===== LEVELS =====
+function buildLevel1(){
+  clearLevel();
+  startBlock.position.set(0,2,10);
+  let x=0,y=3,z=14;
+  for(let i=0;i<30;i++){
+    x+=i%2===0?4:-4;
+    z+=5;
+    createBlock(x,y,z,3,colorsLevel1[i%colorsLevel1.length]);
+  }
+  // place goal closer and easier to reach
+goal.position.set(x,y+3,z+3);
+  goal.visible=true;
+}
+
+function buildLevel2(){
+  clearLevel();
+  startBlock.position.set(0,2,10);
+
+  // LEVEL 2: LONG LABYRINTH STYLE PARKOUR
+  // Structured, separated blocks, maze-like and longer
+
+  const palette=[0x4dfcff,0xff5fa2,0xffc857,0x7cff6b,0xb86cff];
+
+  let x=0, y=3, z=14;
+  const steps=70; // longer level
+
+  for(let i=0;i<steps;i++){
+    // create block
+    createBlock(x,y,z,3,palette[i%palette.length]);
+
+    // maze-like direction changes
+    if(i%5===0){
+      x += (i%10===0?6:-6);
+    } else {
+      z += 6;
+    }
+
+    // gentle vertical variation (no stacking)
+    y = 3 + (i%6)*0.7;
+
+    // dead-end branches (visual maze)
+    if(i%8===0){
+      createBlock(x+6,y,z,3,0x333333);
+    }
+  }
+
+  // final helper block before goal
+createBlock(x, y, z+3, 3, 0xff5fa2);
+
+// goal placed close after final block
+goal.position.set(x, y+4, z+6);
+  goal.visible=true;
+}
+
+function loadLevel(lvl){lvl===1?buildLevel1():buildLevel2();}
+
+// ===== CONTROLS =====
 const keys={};
 let yaw=0,vy=0,isGrounded=false;
 const gravity=-0.025,jump=0.5;
@@ -276,3 +562,4 @@ animate();
 </script>
 </body>
 </html>
+
