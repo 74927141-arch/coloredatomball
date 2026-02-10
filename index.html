@@ -5,8 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>COLOREDATOM – Neon Atom Arena</title>
 
-
-
 <style>
 html,body{margin:0;padding:0;overflow:hidden;background:#05060a;font-family:Inter,system-ui,sans-serif;cursor:auto}
 #startScreen,#endScreen{position:fixed;inset:0;display:flex;flex-direction:column;justify-content:center;align-items:center;z-index:100}
@@ -30,7 +28,7 @@ button{margin-top:16px;padding:14px 36px;font-size:18px;border-radius:14px;borde
 </div>
 
 <div id="ui">
-  WASD move · Space jump · Mouse look<br/>
+  WASD / Joystick move · Space / Button jump<br/>
   <button id="resetBtn">Restart</button>
   <button id="nextBtn">Next Level</button>
 </div>
@@ -49,16 +47,12 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x05060a);
 
 const camera = new THREE.PerspectiveCamera(60, innerWidth/innerHeight, 0.1, 1000);
-// initial camera position so mobile doesn't render black
 camera.position.set(0,6,18);
 camera.lookAt(0,2,0);
+
 const renderer = new THREE.WebGLRenderer({antialias:true});
-renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
 renderer.setSize(innerWidth, innerHeight);
-renderer.domElement.style.position='fixed';
-renderer.domElement.style.inset='0';
-renderer.domElement.style.width='100%';
-renderer.domElement.style.height='100%';
 document.body.appendChild(renderer.domElement);
 
 addEventListener('resize',()=>{
@@ -72,21 +66,20 @@ const sun=new THREE.DirectionalLight(0xffffff,1.2);
 sun.position.set(30,60,20);
 scene.add(sun);
 
-// ===== DATA =====
+// ===== GAME DATA =====
 const colorsLevel1=[0x4dfcff,0xff5fa2,0xffc857,0x7cff6b,0xb86cff];
 let lives=3;
 let currentLevel=1;
 let gameStarted=false;
 const blocks=[];
-const dynamicBlocks=[];
 
 // ===== FLOOR =====
 const floor=new THREE.Mesh(
-  new THREE.BoxGeometry(80,2,80),
+  new THREE.BoxGeometry(120,2,120),
   new THREE.MeshStandardMaterial({color:0x111a33})
 );
 floor.position.y=-1;
-floor.userData={half:40,halfH:1};
+floor.userData={half:60,halfH:1};
 scene.add(floor);
 
 // ===== START BLOCK =====
@@ -124,15 +117,11 @@ function createBlock(x,y,z,size,color){
   b.userData={half:size/2,halfH:h/2};
   scene.add(b);
   blocks.push(b);
-  return b;
 }
 
 function clearLevel(){
   blocks.forEach(b=>scene.remove(b));
-  dynamicBlocks.length=0;
   blocks.length=0;
-  scene.add(floor);
-  scene.add(startBlock);
   blocks.push(floor,startBlock);
 }
 
@@ -146,8 +135,7 @@ function buildLevel1(){
     z+=5;
     createBlock(x,y,z,3,colorsLevel1[i%colorsLevel1.length]);
   }
-  // place goal closer and easier to reach
-goal.position.set(x,y+3,z+3);
+  goal.position.set(x,y+3,z+4);
   goal.visible=true;
 }
 
@@ -155,49 +143,24 @@ function buildLevel2(){
   clearLevel();
   startBlock.position.set(0,2,10);
 
-  // LEVEL 2: LONG LABYRINTH STYLE PARKOUR
-  // Structured, separated blocks, maze-like and longer
-
   const palette=[0x4dfcff,0xff5fa2,0xffc857,0x7cff6b,0xb86cff];
+  let x=0,y=3,z=14;
 
-  let x=0, y=3, z=14;
-  const steps=70; // longer level
-
-  for(let i=0;i<steps;i++){
-    // create block
+  for(let i=0;i<60;i++){
     createBlock(x,y,z,3,palette[i%palette.length]);
-
-    // maze-like direction changes
-    if(i%5===0){
-      x += (i%10===0?6:-6);
-    } else {
-      z += 6;
-    }
-
-    // gentle vertical variation (no stacking)
-    y = 3 + (i%6)*0.7;
-
-    // dead-end branches (visual maze)
-    if(i%8===0){
-      createBlock(x+6,y,z,3,0x333333);
-    }
+    if(i%4===0){x+=6;} else {z+=6;}
+    y=3+(i%5)*0.6;
   }
 
-  // final helper block before goal
-createBlock(x, y, z+3, 3, 0xff5fa2);
-
-// goal placed close after final block
-goal.position.set(x, y+4, z+6);
+  createBlock(x,y,z+3,3,0xff5fa2);
+  goal.position.set(x,y+4,z+6);
   goal.visible=true;
 }
 
 function loadLevel(lvl){lvl===1?buildLevel1():buildLevel2();}
 
 // ===== CONTROLS =====
-
-// --- MOBILE DETECTION ---
-const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-
+const isMobile=/Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 const keys={};
 let yaw=0,vy=0,isGrounded=false;
 const gravity=-0.025,jump=0.5;
@@ -205,26 +168,7 @@ const gravity=-0.025,jump=0.5;
 addEventListener('keydown',e=>keys[e.key.toLowerCase()]=true);
 addEventListener('keyup',e=>keys[e.key.toLowerCase()]=false);
 
-// mouse look (desktop)
 addEventListener('mousemove',e=>{ if(!isMobile) yaw-=e.movementX*0.015; });
-
-// --- MOBILE TOUCH LOOK ---
-let lastTouchX=null;
-addEventListener('touchmove',e=>{
-  if(!isMobile) return;
-  const t=e.touches[0];
-  if(lastTouchX!==null){ yaw -= (t.clientX-lastTouchX)*0.01; }
-  lastTouchX=t.clientX;
-},{passive:true});
-addEventListener('touchend',()=>lastTouchX=null);
-
-// unified input helpers so mobile == desktop
-function inputForward(){ return keys.w || (isMobile && window.mobileInput && window.mobileInput().joyY()<-0.15); }
-function inputBack(){ return keys.s || (isMobile && window.mobileInput && window.mobileInput().joyY()>0.15); }
-function inputLeft(){ return keys.a || (isMobile && window.mobileInput && window.mobileInput().joyX()<-0.15); }
-function inputRight(){ return keys.d || (isMobile && window.mobileInput && window.mobileInput().joyX()>0.15); }
-function inputJump(){ return keys[' '] || (isMobile && window.mobileInput && window.mobileInput().jump()); }
-
 
 // ===== UI =====
 lvl1.onclick=()=>startGame(1);
@@ -246,7 +190,6 @@ function startGame(lvl){
 }
 
 function resetPlayer(){player.position.set(startBlock.position.x, startBlock.position.y+2, startBlock.position.z);vy=0;}
-
 function loseLife(){lives--;resetPlayer();if(lives<=0){gameStarted=false;startScreen.style.display='flex';document.body.style.cursor='auto';}}
 
 function endGame(){
@@ -262,62 +205,12 @@ function animate(){
   if(!gameStarted){renderer.render(scene,camera);return;}
 
   const dir=new THREE.Vector3(Math.sin(yaw),0,Math.cos(yaw));
-  const right = new THREE.Vector3(dir.z, 0, -dir.x);
+  const right=new THREE.Vector3(dir.z,0,-dir.x);
 
-  if(inputForward()) player.position.addScaledVector(dir,0.16);
-  if(inputBack()) player.position.addScaledVector(dir,-0.16);
-  if(inputLeft()) player.position.addScaledVector(right,0.16);
-  if(inputRight()) player.position.addScaledVector(right,-0.16);
-
-  vy+=gravity;
-  player.position.y+=vy;
-  isGrounded=false;
-
-  blocks.forEach(b=>{
-    const dx=Math.abs(player.position.x-b.position.x);
-    const dz=Math.abs(player.position.z-b.position.z);
-    const top=b.position.y+b.userData.halfH;
-    if(dx<b.userData.half+radius && dz<b.userData.half+radius){
-      if(vy<=0 && player.position.y-radius<=top && player.position.y>top){
-        player.position.y=top+radius;vy=0;isGrounded=true;
-      }
-    }
-  });
-
-  if(inputJump() && isGrounded) vy=jump;
-  if(player.position.y<-10) loseLife();
-
-  dynamicBlocks.forEach(d=>{
-    const nx=d.baseX+Math.sin(performance.now()*0.002)*3;
-    const dx=nx-d.mesh.position.x;
-    d.mesh.position.x=nx;
-    if(isGrounded) player.position.x+=dx;
-  });
-
-  if(goal.visible && player.position.distanceTo(goal.position)<1.8) endGame();
-
-  camera.position.set(player.position.x-10*Math.sin(yaw),player.position.y+4,player.position.z-10*Math.cos(yaw));
-  camera.lookAt(player.position);
-
-  renderer.render(scene,camera);
-}
-animate();return;}
-
-  const dir=new THREE.Vector3(Math.sin(yaw),0,Math.cos(yaw));
-  // forward / backward
-  if(keys.w) player.position.addScaledVector(dir,0.14);
-  if(keys.s) player.position.addScaledVector(dir,-0.14);
-
-  // strafe left / right
-  const right = new THREE.Vector3(dir.z, 0, -dir.x);
-  if(keys.a) player.position.addScaledVector(right,0.14);
-  if(keys.d) player.position.addScaledVector(right,-0.14);
-
-  // mobile joystick movement
-  if(isMobile && window.mobileInput){
-    player.position.addScaledVector(dir, -window.mobileInput().joyY()*0.18);
-    player.position.addScaledVector(right, window.mobileInput().joyX()*0.18);
-  }
+  if(keys.w) player.position.addScaledVector(dir,0.16);
+  if(keys.s) player.position.addScaledVector(dir,-0.16);
+  if(keys.a) player.position.addScaledVector(right,0.16);
+  if(keys.d) player.position.addScaledVector(right,-0.16);
 
   vy+=gravity;
   player.position.y+=vy;
@@ -334,15 +227,8 @@ animate();return;}
     }
   });
 
-  if((keys[' '] || (isMobile && window.mobileInput && window.mobileInput().jump())) && isGrounded) vy=jump;
+  if(keys[' '] && isGrounded) vy=jump;
   if(player.position.y<-10) loseLife();
-
-  dynamicBlocks.forEach(d=>{
-    const nx=d.baseX+Math.sin(performance.now()*0.002)*3;
-    const dx=nx-d.mesh.position.x;
-    d.mesh.position.x=nx;
-    if(isGrounded) player.position.x+=dx;
-  });
 
   if(goal.visible && player.position.distanceTo(goal.position)<1.8) endGame();
 
