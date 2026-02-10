@@ -49,6 +49,9 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x05060a);
 
 const camera = new THREE.PerspectiveCamera(60, innerWidth/innerHeight, 0.1, 1000);
+// initial camera position so mobile doesn't render black
+camera.position.set(0,6,18);
+camera.lookAt(0,2,0);
 const renderer = new THREE.WebGLRenderer({antialias:true});
 renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
 renderer.setSize(innerWidth, innerHeight);
