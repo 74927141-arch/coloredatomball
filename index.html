@@ -198,27 +198,32 @@ function loadLevel(lvl){lvl===1?buildLevel1():buildLevel2();}
 // --- MOBILE DETECTION ---
 const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 
-let touchForward=false, touchBack=false, touchLeft=false, touchRight=false;
-let lastTouchX=null;
-
 const keys={};
 let yaw=0,vy=0,isGrounded=false;
 const gravity=-0.025,jump=0.5;
 
 addEventListener('keydown',e=>keys[e.key.toLowerCase()]=true);
 addEventListener('keyup',e=>keys[e.key.toLowerCase()]=false);
-// reduced mouse sensitivity
+
+// mouse look (desktop)
 addEventListener('mousemove',e=>{ if(!isMobile) yaw-=e.movementX*0.015; });
 
 // --- MOBILE TOUCH LOOK ---
+let lastTouchX=null;
 addEventListener('touchmove',e=>{
   if(!isMobile) return;
   const t=e.touches[0];
   if(lastTouchX!==null){ yaw -= (t.clientX-lastTouchX)*0.01; }
   lastTouchX=t.clientX;
 },{passive:true});
-
 addEventListener('touchend',()=>lastTouchX=null);
+
+// unified input helpers so mobile == desktop
+function inputForward(){ return keys.w || (isMobile && window.mobileInput && window.mobileInput().joyY()<-0.15); }
+function inputBack(){ return keys.s || (isMobile && window.mobileInput && window.mobileInput().joyY()>0.15); }
+function inputLeft(){ return keys.a || (isMobile && window.mobileInput && window.mobileInput().joyX()<-0.15); }
+function inputRight(){ return keys.d || (isMobile && window.mobileInput && window.mobileInput().joyX()>0.15); }
+function inputJump(){ return keys[' '] || (isMobile && window.mobileInput && window.mobileInput().jump()); }
 
 
 // ===== UI =====
@@ -252,45 +257,51 @@ function endGame(){
 }
 
 // ===== LOOP =====
-// --- MOBILE JOYSTICK + JUMP ---
-if(isMobile){
-  let joyX=0, joyY=0, jumping=false;
-
-  const joy=document.createElement('div');
-  joy.style.cssText=`position:fixed;left:20px;bottom:20px;width:140px;height:140px;border-radius:50%;background:rgba(255,255,255,0.08);z-index:200;touch-action:none;`;
-
-  const knob=document.createElement('div');
-  knob.style.cssText=`position:absolute;left:50%;top:50%;width:60px;height:60px;margin:-30px;border-radius:50%;background:rgba(255,255,255,0.4);`;
-  joy.appendChild(knob);
-  document.body.appendChild(joy);
-
-  joy.addEventListener('touchstart',e=>e.preventDefault());
-  joy.addEventListener('touchmove',e=>{
-    const t=e.touches[0];
-    const r=joy.getBoundingClientRect();
-    const dx=t.clientX-(r.left+r.width/2);
-    const dy=t.clientY-(r.top+r.height/2);
-    const d=Math.min(50,Math.hypot(dx,dy));
-    const a=Math.atan2(dy,dx);
-    joyX=Math.cos(a)*(d/50);
-    joyY=Math.sin(a)*(d/50);
-    knob.style.transform=`translate(${joyX*40}px,${joyY*40}px)`;
-  });
-  joy.addEventListener('touchend',()=>{joyX=joyY=0;knob.style.transform='translate(0,0)';});
-
-  const jumpBtn=document.createElement('button');
-  jumpBtn.innerText='⤒';
-  jumpBtn.style.cssText=`position:fixed;right:30px;bottom:40px;width:80px;height:80px;border-radius:50%;font-size:32px;border:none;background:linear-gradient(135deg,#4dfcff,#ff5fa2);color:#000;z-index:200;`;
-  document.body.appendChild(jumpBtn);
-  jumpBtn.ontouchstart=()=>jumping=true;
-  jumpBtn.ontouchend=()=>jumping=false;
-
-  window.mobileInput={joyX:()=>joyX, joyY:()=>joyY, jump:()=>jumping};
-}
-
 function animate(){
   requestAnimationFrame(animate);
   if(!gameStarted){renderer.render(scene,camera);return;}
+
+  const dir=new THREE.Vector3(Math.sin(yaw),0,Math.cos(yaw));
+  const right = new THREE.Vector3(dir.z, 0, -dir.x);
+
+  if(inputForward()) player.position.addScaledVector(dir,0.16);
+  if(inputBack()) player.position.addScaledVector(dir,-0.16);
+  if(inputLeft()) player.position.addScaledVector(right,0.16);
+  if(inputRight()) player.position.addScaledVector(right,-0.16);
+
+  vy+=gravity;
+  player.position.y+=vy;
+  isGrounded=false;
+
+  blocks.forEach(b=>{
+    const dx=Math.abs(player.position.x-b.position.x);
+    const dz=Math.abs(player.position.z-b.position.z);
+    const top=b.position.y+b.userData.halfH;
+    if(dx<b.userData.half+radius && dz<b.userData.half+radius){
+      if(vy<=0 && player.position.y-radius<=top && player.position.y>top){
+        player.position.y=top+radius;vy=0;isGrounded=true;
+      }
+    }
+  });
+
+  if(inputJump() && isGrounded) vy=jump;
+  if(player.position.y<-10) loseLife();
+
+  dynamicBlocks.forEach(d=>{
+    const nx=d.baseX+Math.sin(performance.now()*0.002)*3;
+    const dx=nx-d.mesh.position.x;
+    d.mesh.position.x=nx;
+    if(isGrounded) player.position.x+=dx;
+  });
+
+  if(goal.visible && player.position.distanceTo(goal.position)<1.8) endGame();
+
+  camera.position.set(player.position.x-10*Math.sin(yaw),player.position.y+4,player.position.z-10*Math.cos(yaw));
+  camera.lookAt(player.position);
+
+  renderer.render(scene,camera);
+}
+animate();return;}
 
   const dir=new THREE.Vector3(Math.sin(yaw),0,Math.cos(yaw));
   // forward / backward
